@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python#
 
 """
 tpipe.py --- read and visualize visibility data to search for transients
@@ -98,7 +98,18 @@ class Reader:
                 'approxuvw' : True,      # flag to make template visibility file to speed up writing of dm track data
                 'pathout': './',         # place to put output files
                 'beam_params': [0]         # flag=0 or list of parameters for twodgaussian parameter definition
-                }
+                },
+            'lofar' : {
+#                'ants' : range(25), # antenna set to look for (only works for ms data)                
+#                'chans':n.array(range(4)), # channels to read (appropriate for no_flag.MS example) 
+                'chans':n.array(range(1, 5)), # channels to read (appropriate for no_flag.MS example)            
+                'dmarr' : [44., 88.], # dm values to use for dedispersion (only for some subclasses)
+                'pulsewidth' : 0.0, # width of pulse in time (seconds)
+                'approxuvw' : True, # flag to make template visibility file to speed up writing of dm track data
+                #'pathout': './', # place to put output files   
+                'pathout': '/home/georgi/tpipe/pkl_file_folder/', # place to put output files 
+                'beam_params': [0]         # flag=0 or list of parameters for twodgaussian parameter definition                
+                }        
             }
 
         # may further modify parameters manually
