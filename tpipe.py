@@ -102,7 +102,7 @@ class Reader:
             'lofar' : {
 #                'ants' : range(25), # antenna set to look for (only works for ms data)                
 #                'chans':n.array(range(4)), # channels to read (appropriate for no_flag.MS example) 
-                'chans':n.array(range(1, 5)), # channels to read (appropriate for no_flag.MS example)            
+                'chans':n.array(range(1, 6)), # channels to read (appropriate for no_flag.MS example)            
                 'dmarr' : [44., 88.], # dm values to use for dedispersion (only for some subclasses)
                 'pulsewidth' : 0.0, # width of pulse in time (seconds)
                 'approxuvw' : True, # flag to make template visibility file to speed up writing of dm track data
