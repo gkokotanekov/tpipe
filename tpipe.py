@@ -102,7 +102,7 @@ class Reader:
             'lofar' : {
 #                'ants' : range(25), # antenna set to look for (only works for ms data)                
 #                'chans':n.array(range(4)), # channels to read (appropriate for no_flag.MS example) 
-                'chans':n.array(range(1, 6)), # channels to read (appropriate for no_flag.MS example)            
+                'chans':n.array(range(1, 5)), # channels to read (appropriate for no_flag.MS example)            
                 'dmarr' : [44., 88.], # dm values to use for dedispersion (only for some subclasses)
                 'pulsewidth' : 0.0, # width of pulse in time (seconds)
                 'approxuvw' : True, # flag to make template visibility file to speed up writing of dm track data
@@ -681,6 +681,7 @@ class MSReader(Reader):
             pkl = open(pklname, 'wb')
             ms.open(self.file)
             spwinfo = ms.getspectralwindowinfo()
+#            print 'spwinfo', spwinfo
             scansummary = ms.getscansummary()
 
 # original (general version)
@@ -696,18 +697,33 @@ class MSReader(Reader):
             stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0.5/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0]
 
             ms.selectinit(datadescid=0)  # initialize to initialize params
-            selection = {'time': [starttime0, stoptime0]}
-            ms.select(items = selection)
+#            selection = {'time': [starttime0, stoptime0]}
+#            ms.select(items = selection)
             da = ms.getdata([datacol,'axis_info'], ifraxis=True)
             ms.close()
+            
 
+            print 'da.keys', da.keys()
             self.npol_orig = da[datacol].shape[0]
             self.nbl = da[datacol].shape[2]
             print 'Initializing nbl:', self.nbl
 
             # good baselines
             bls = da['axis_info']['ifr_axis']['ifr_shortname']
-            self.blarr = n.array([[int(bls[i].split('-')[0]),int(bls[i].split('-')[1])] for i in xrange(len(bls))])
+            
+            #added by GDK because of LOFAR antenna names
+            try:                
+                self.blarr=n.array([[int(bls[i].split('-')[0]), int(bls[i].split('-')[1])] for i in range(len(bls))])       
+            except:
+                self.blarr=n.array([[bls[i].split('-')[0], bls[i].split('-')[1]] for i in range(len(bls)) if bls[i].split('-')[0] != bls[i].split('-')[1]])
+                self.ants_list=list(n.unique(self.blarr))
+                ant_inds_dict={}
+                for i in range(len(self.ants_list)):
+                    ant_inds_dict[i]=self.ants_list[i]
+                print 'ant_inds_dict', ant_inds_dict
+                self.blarr=n.array([[self.ants_list.index(bls[i].split('-')[0]), self.ants_list.index(bls[i].split('-')[1])] for i in range(len(bls))])
+            
+#            self.blarr = n.array([[int(bls[i].split('-')[0]),int(bls[i].split('-')[1])] for i in xrange(len(bls))]) #original
             self.nskip = int(nskip*self.nbl)    # number of iterations to skip (for reading in different parts of buffer)
 
             # set integration time
@@ -729,7 +745,8 @@ class MSReader(Reader):
 
         # set desired spw
         if (len(spw) == 1) & (spw[0] == -1):
-            spwlist = spwinfo['spwInfo'].keys()    # old way
+#            spwlist = spwinfo['spwInfo'].keys()    # old way
+            spwlist=range(len(spwinfo['spwInfo'])) #GDk from tpipe_nomir
         else:
             spwlist = spw
 
