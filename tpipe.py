@@ -745,8 +745,8 @@ class MSReader(Reader):
 
         # set desired spw
         if (len(spw) == 1) & (spw[0] == -1):
-#            spwlist = spwinfo['spwInfo'].keys()    # old way
-            spwlist=range(len(spwinfo['spwInfo'])) #GDk from tpipe_nomir
+            spwlist = spwinfo['spwInfo'].keys()    # old way
+#            spwlist=range(len(spwinfo['spwInfo'])) #GDK from tpipe_nomir
         else:
             spwlist = spw
 
