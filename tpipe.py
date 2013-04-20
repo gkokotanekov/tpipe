@@ -102,7 +102,7 @@ class Reader:
             'lofar' : {
 #                'ants' : range(25), # antenna set to look for (only works for ms data)                
 #                'chans':n.array(range(4)), # channels to read (appropriate for no_flag.MS example) 
-                'chans':n.array(range(35, 39)), # channels to read (appropriate for no_flag.MS example)            
+                'chans':n.array(range(4)), # channels to read (appropriate for no_flag.MS example)            
                 'dmarr' : [44., 88.], # dm values to use for dedispersion (only for some subclasses)
                 'pulsewidth' : 0.0, # width of pulse in time (seconds)
                 'approxuvw' : True, # flag to make template visibility file to speed up writing of dm track data
@@ -141,15 +141,27 @@ class Reader:
 
         reltime = self.reltime
         bf = self.dataph
+        print 'bg min max', bf.min(), bf.max()
+        print 'bf shape', bf.shape
+#        for i in range(660):
+#            print 'bf member', bf[i,3]
+        
+
 
         print 'Data mean, std: %f, %f' % (self.dataph.mean(), self.dataph.std())
         (vmin, vmax) = sigma_clip(bf.data.ravel())
+        (vmin, vmax) = sigma_clip(bf.ravel()) #GDK
+        vmin = bf.min()
+        vmax = bf.max()
+        print 'vmin, vmax', vmin, vmax
+        
         if ( (not(vmin >= 0)) & (not(vmin <= 0)) ):
             print 'sigma_clip returning NaNs. Using data (min,max).'
             vmin = bf.ravel().min()
             vmax = bf.ravel().max()
 
         p.figure()
+#        p.figure(2) #GDK
         p.clf()
         ax = p.axes()
         ax.set_position([0.2,0.2,0.7,0.7])
@@ -666,8 +678,10 @@ class MSReader(Reader):
         self.nints = nints
 
         # get spw info. either load pickled version (if found) or make new one
-        pklname = string.join(file.split('.')[:-1], '.') + '_init.pkl'
-#        pklname = pklname.split('/')[-1]  # hack to remove path and write locally
+#        pklname = string.join(file.split('.')[:-1], '.') + '_init.pkl'
+##        pklname = pklname.split('/')[-1]  # hack to remove path and write locally
+        pklname=self.pathout + string.join(file.split('.')[:-1], '.') + '_init.pkl' #GDK   
+             
         if os.path.exists(pklname):
             print 'Pickle of initializing info found. Loading...'
             pkl = open(pklname, 'r')
@@ -701,8 +715,7 @@ class MSReader(Reader):
             scanlist = scansummary.keys()
             starttime_mjd = scansummary[scanlist[scan]]['0']['BeginTime']
             starttime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
-#            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0.5/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0]
-            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0] #GDK
+            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0] #GDK, 0.5->3.0
 #            print 'starttime0',qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)
 #            print 'stoptime0',  qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)
             
@@ -761,12 +774,15 @@ class MSReader(Reader):
         # set desired spw
         if (len(spw) == 1) & (spw[0] == -1):
 ##            spwlist = spwinfo['spwInfo'].keys()    # old way
-#            spwlist = spwinfo.keys()    # new way
-            spwlist = range(len(spwinfo.keys())) #way GDK, as far as I get the idea
+            spwlist = spwinfo.keys()    # new way
+#            spwlist = range(len(spwinfo.keys())) #way GDK, as far as I get the idea
         else:
             spwlist = spw
-      
-        print 'spwlist', spwlist
+            
+        try:
+            spwlist = map(int, spwlist)
+        except:
+            pass
 
         self.freq_orig = n.array([])
         for spw in spwlist:
@@ -790,7 +806,7 @@ class MSReader(Reader):
         starttime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
         stoptime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0]
         print 'First integration of scan:', qa.time(qa.quantity(starttime_mjd,'d'),form=['ymd'],prec=9)[0]
-        print
+#        print
 # new way
         print 'Reading scan', str(scanlist[scan]) ,'for times', qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['hms'], prec=9)[0], 'to', qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['hms'], prec=9)[0]
 
@@ -944,14 +960,19 @@ class ProcessByIntegration():
 # using 0 as flag
 #        self.data = n.ma.masked_array(self.rawdata[:self.nints,:, self.chans,:], self.rawdata[:self.nints,:, self.chans,:] == 0j)
 # using standard flags
-        self.data = n.ma.masked_array(self.rawdata[:self.nints,:, self.chans,:], self.flags[:self.nints,:, self.chans,:] == 0)
+#        self.data = n.ma.masked_array(self.rawdata[:self.nints,:, self.chans,:], self.flags[:self.nints,:, self.chans,:] == 0)    
+        self.data = n.ma.masked_array(self.rawdata[:self.nints,:, self.chans,:], self.flags[:self.nints,:, self.chans,:] == True)#GDK    
         self.dataph = (self.data.mean(axis=3).mean(axis=1)).real   #dataph is summed and detected to form TP beam at phase center, multi-pol
+#        for i in range(660):
+#            print 'self.flags', self.flags[i,0,0,0], 'self.data', self.data[i,0,0,0]
+        
+#        for i in range(660):
+#            print 'member', self.dataph[i,3]
+        
         self.min = self.dataph.min()
         self.max = self.dataph.max()
         print 'Shape of data:'
         print self.data.shape
-        print 'Dataph min, max:'
-        print self.min, self.max
 
         self.freq = self.freq_orig[self.chans]
 
@@ -995,15 +1016,29 @@ class ProcessByIntegration():
         """ Creates a background-subtracted set of visibilities.
         For a given track (i.e., an integration number) and bg window, tracksub subtractes a background in time and returns an array with new data.
         """
-
+        
         data = self.data
         track_t,track_c = self.track0  # get track time and channel arrays
         trackon = (list(n.array(track_t)+tbin), track_c)   # create new track during integration of interest
         twidth = self.twidth
+        
+#        data[118, 170,2,:].mask = False
 
         dataon = data[trackon[0], :, trackon[1]]
+#        print 'dataon', dataon[0,0,0], self.flags[trackon[0][0],0,0,0] #, self.data[trackon[0][0],0,0,0]
+#        if trackon[0][0] == 658.0:
+#            print 'dataon shape', dataon.shape
+#            for jj in range(303):
+#                if not dataon[:, jj, :].mask.all():
+#                    print 'jj', jj
+#                    print 'dataon', dataon[:, jj, :]
+
+        
+
         truearron = n.ones( n.shape(dataon) )
         falsearron = 1e-5*n.ones( n.shape(dataon) )  # small weight to keep n.average from giving NaN
+        
+        
 
         # set up bg track
         if bgwindow:
@@ -1024,22 +1059,105 @@ class ProcessByIntegration():
         # compress time axis, then subtract on and off tracks
         for ch in n.unique(trackon[1]):
             indon = n.where(trackon[1] == ch)
+#            if trackon[0][0] == 118:
+#                dataon[indon][:, 170,:].mask = False
+#                print 'NEW', dataon[indon][:, 170,:].mask, dataon[indon][:, 170,:]
+
+#            ind_bad = n.where(dataon[indon].data == 0j)
+#            dataon[indon][ind_bad].data = 0j
+
             weightarr = n.where(dataon[indon] != 0j, truearron[indon], falsearron[indon])
-            meanon = n.average(dataon[indon], axis=0, weights=weightarr)
-#            meanon = dataon[indon].mean(axis=0)    # include all zeros
+            meanon = n.average(dataon[indon], axis=0, weights=weightarr) #mean in time #comment by GDK
+##            meanon = dataon[indon].mean(axis=0)    # include all zeros
+
+
+##            meanon_nomask = n.average(dataon[indon], axis=0, weights=weightarr) #GDK, to compare
+##            meanon = n.ma.masked_where(weightarr.all()==1e-5, meanon)#GDK
+
+#            #GDK method to eliminate flagged
+#            meanon_tuple = n.average(dataon[indon], axis=0, weights=weightarr, returned = True) #GDK, returned=True
+#            meanon_sum_w = meanon_tuple[1]
+#            meanon = meanon_tuple[0]            
+#            meanon_ind_bad = n.where(meanon_sum_w < 1.0) #indices of meanon elements which were averaged from completely flagged(or genuinely 0j) data, if one or more of the original data entries was not bad sum_w would be >=0
+#            meanon[meanon_ind_bad] = 0j
+            
+#            t_index = 118
+#            if trackon[0][0] == t_index and ch==2:
+#                for jj in range(303):
+#                    print 'meanon_sum_w',ch, jj,meanon_sum_w[jj, :]
+            
+              
+            weightarr_on = weightarr #GDK to print
 
             if bgwindow:
                 indoff = n.where(trackoff[1] == ch)
                 weightarr = n.where(dataoff[indoff] != 0j, truearroff[indoff], falsearroff[indoff])
-                meanoff = n.average(dataoff[indoff], axis=0, weights=weightarr)
-#                meanoff = dataoff[indoff].mean(axis=0)   # include all zeros
+                meanoff = n.average(dataoff[indoff], axis=0, weights=weightarr) #mean in time #comment by GDK
+##                meanoff = dataoff[indoff].mean(axis=0)   # include all zeros
+
+#                #GDK to eliminate flagged
+#                meanoff_tuple = n.average(dataoff[indoff], axis=0, weights=weightarr, returned=True)
+#                meanoff = meanoff_tuple[0]
+#                meanoff_sum_w = meanoff_tuple[1]
+#                meanoff_ind_bad = n.where(meanoff_sum_w < 1.0) #indices of meanon elements which were averaged from completely flagged(or genuinely 0j) data, if one or more of the original data entries was not bad sum_w would be >=0
+#                meanoff[meanoff_ind_bad] = 0j # so that it can be caught by zeros = n.where( (meanon == 0j) | (meanoff == 0j) )
+
+                
 
                 datadiffarr[ch] = meanon - meanoff
-                zeros = n.where( (meanon == 0j) | (meanoff == 0j) )  # find baselines and pols with zeros for meanon or meanoff
+                zeros = n.where( (meanon == 0j) | (meanoff == 0j) )  # find baselines and pols with zeros for meanon or meanoff                
                 datadiffarr[ch][zeros] = 0j    # set missing data to zero # hack! but could be ok if we can ignore zeros later...
             else:
                 datadiffarr[ch] = meanon
-
+#                
+##            #GDK PRINTING
+#                
+#            t_index = 657
+#            if trackon[0][0] == t_index and ch==2:
+#                for jj in range(303):
+##                    if not dataon[:, jj, :].mask.all():
+#                    print 'jj', jj                    
+#                    print 'dataon.type', type(dataon)
+#                    print 'meanon.type', type(meanon)
+#                    print 'weightarr on', weightarr_on[:, jj, :]
+#                    print 'weightarr on', weightarr_on[:, jj, :].data, 'data'
+#                    print 'dataon indon', dataon[indon][:, jj,:]
+#                    print 'dataon indon', dataon[indon][:, jj,:].data, 'data'
+#                    print 'meanon', meanon[jj, :]
+##                    print 'meanon sum_w', meanon_sum_w[jj, :]
+#                    print ''
+##
+###                    if meanon[jj, 0] != meanon_nomask[jj, 0] or meanon[jj, 1] != meanon_nomask[jj, 1]:
+###                        print 'NOT SAME', ch, jj  
+###                        print 'w/mask', meanon[jj, :]
+###                        print 'nomask', meanon_nomask[jj, :]#, type(meanon[jj, :]), type(meanon_nomask[jj, :])
+###                        print ''
+##
+###                    if False not in meanon[jj, :].mask:
+###                        print ch, jj
+###                        print 'data', self.data[t_index, jj, ch, :].data, self.data[t_index, jj, ch, :].mask
+###                        self.data[t_index, jj, ch, :].mask = False
+####                        self.data[t_index, jj, ch, 1].mask = 0
+###                        print 'data', self.data[t_index, jj, ch, :].data, self.data[t_index, jj, ch, :].mask
+####                        dataon[indon][:, jj,0].mask = False
+###                        print 'dataon indon', dataon[indon][:, jj,:].hardmask
+###                        new_mask = n.ma.make_mask(dataon[indon][:, jj,:])
+###                        print 'new mask', n.ma.masked_where(dataon[indon][:, jj,:]==0j,dataon[indon][:, jj,:])
+##                        
+####                    if False in dataon[indon][:, jj,:].mask:
+####                        print 'exists False'
+####                    else:
+####                        print "no Fasle"
+###                    print ''
+##                    
+#                    print 'weightarr off', weightarr[:, jj, :]
+#                    print 'weightarr off', weightarr[:, jj, :].data, 'data'
+#                    print 'dataoff indoff', dataoff[indoff][:, jj,:]
+#                    print 'dataoff indoff', dataoff[indoff][:, jj,:].data, 'data'                    
+#                    print 'meanoff', meanoff[jj, :]
+#                    print 'datadiffarr', datadiffarr[ch][jj, :]
+#                    print ''
+  
         return n.transpose(datadiffarr, axes=[2,1,0])
 
     def make_bispectra(self, bgwindow=4):
@@ -1068,35 +1186,83 @@ for i in range(0, len(n_a)-2):
       The mean of all bispectra will scale with the source brightness to the third power, since it is formed from the product of three visibilities. Oddly, the standard deviation of the bispectra will *also* change with the source brightness, due to something called "self noise". The standard deviation of bispectra in the real-imaginary plane should be sqrt(3) S^2 sigma_bl, where S is the source brightness and sigma_bl is the noise on an individual baseline.
       In practice, this search involves plotting the mean bispectrum versus time and searching for large deviations. At the same time, a plot of mean versus standard deviation of bispectra will show whether any significant deviation obeys the expected self-noise scaling. That scaling is only valid for a single point source in the field of view, which is what you expect for a fast transient. Any other behavior would be either noise-like or caused by RFI. In particular, RFI will look like a transient, but since it does not often look like a point source, it can be rejected in the plot of mean vs. standard deviation of bispectra. This is a point that I've demonstrated on a small scale, but would needs more testing, since RFI is so varied.
         """
-
-        bisp = lambda d, ij, jk, ki: d[:,ij] * d[:,jk] * n.conj(d[:,ki])    # bispectrum for pol data
-#        bisp = lambda d, ij, jk, ki: n.complex(d[ij] * d[jk] * n.conj(d[ki]))  # without pol axis
-
-        triples = self.make_triples()
-        meanbl = self.data.mean(axis=3).mean(axis=2).mean(axis=0)  # find non-zero bls
-        self.triples = triples[(meanbl[triples][:,0] != 0j) & (meanbl[triples][:,1] != 0j) & (meanbl[triples][:,2] != 0j)]   # take triples with non-zero bls
-
-        self.bispectra = n.zeros((len(self.data), len(self.triples)), dtype='complex')
-        truearr = n.ones( (self.npol, self.nbl, len(self.chans)))
-        falsearr = n.zeros( (self.npol, self.nbl, len(self.chans)))
-
-        for i in xrange((bgwindow/2)+self.twidth, len(self.data)-( (bgwindow/2)+self.twidth )):
-#        for i in xrange((bgwindow/2)+self.twidth, len(self.data)-( (bgwindow/2)+self.twidth ), max(1,self.twidth)):  # leaves gaps in data
-            diff = self.tracksub(i, bgwindow=bgwindow)
-
-            if len(n.shape(diff)) == 1:    # no track
-                continue
-
-            weightarr = n.where(diff != 0j, truearr, falsearr)  # ignore zeros in mean across channels # bit of a hack
-
+        
+        use_pkl_bsp = True #to use (True) or not a pkl bispectrum file (if available)
+        
+#        self.bgw = bgwindow #GDK, needed for the png save name in detect_bispectra 
+        self.filename_pattern = string.join(self.file.split('.')[:-1], '.') + '_bispectra_pw' + str(int(self.pulsewidth[0])) + \
+                        '_bgwindow' + str(bgwindow) + '_chans'+ str(self.chans[0]+1) + '-' +str(self.chans[len(self.chans)-1]+1) + \
+                        '_nints' + str(self.nints) + '_nskip' + str(self.nskip) # needed for the png save name in detect_bispectra
+        
+#        bs_filename = self.pathout + string.join(self.file.split('.')[:-1], '.') + '_bispectra_pw' + str(int(self.pulsewidth[0])) + \
+#                        '_bgwindow' + str(bgwindow) + '_chans'+ str(self.chans[0]+1) + '-' +str(self.chans[len(self.chans)-1]+1) + \
+#                        '_nints' + str(self.nints) + '_nskip' + str(self.nskip) + '.pkl'
+                        
+        bs_filename = self.pathout + self.filename_pattern + '.pkl'
+        
+        if use_pkl_bsp and os.path.exists(bs_filename):
+            print 'Pickle of initializing bispectra found. Loading...'
+            bs_pkl=open(bs_filename, 'r')
             try:
-                diffmean = n.average(diff, axis=2, weights=weightarr)
-            except ZeroDivisionError:
-                diffmean = n.mean(diff, axis=2)    # if all zeros, just make mean # bit of a hack
+                self.bispectra, self.triples=pickle.load(bs_pkl)
+            except EOFError:
+                print 'Bad bispectra pickle file. Exiting...'
+                return 1
+        else:
+            if use_pkl_bsp:
+                print 'No pickle of bispectra found. Making anew...'
+            else:
+                print 'use_pkl_bsp = False. Making new pickle of bispectra'
+            bs_pkl=open(bs_filename, 'wb')
+            
 
-            for trip in xrange(len(self.triples)):
-                ij, jk, ki = self.triples[trip]
-                self.bispectra[i, trip] = bisp(diffmean, ij, jk, ki).mean(axis=0)  # Stokes I bispectrum. Note we are averaging after forming bispectrum, so not technically a Stokes I bispectrum.
+            #==original make_bispectra====================================
+            bisp = lambda d, ij, jk, ki: d[:,ij] * d[:,jk] * n.conj(d[:,ki])    # bispectrum for pol data
+    #        bisp = lambda d, ij, jk, ki: n.complex(d[ij] * d[jk] * n.conj(d[ki]))  # without pol axis
+    
+            triples = self.make_triples()
+            meanbl = self.data.mean(axis=3).mean(axis=2).mean(axis=0)  # find non-zero bls
+            self.triples = triples[(meanbl[triples][:,0] != 0j) & (meanbl[triples][:,1] != 0j) & (meanbl[triples][:,2] != 0j)]   # take triples with non-zero bls
+    
+            self.bispectra = n.zeros((len(self.data), len(self.triples)), dtype='complex')
+            truearr = n.ones( (self.npol, self.nbl, len(self.chans)))
+            falsearr = n.zeros( (self.npol, self.nbl, len(self.chans)))
+    
+            for i in xrange((bgwindow/2)+self.twidth, len(self.data)-( (bgwindow/2)+self.twidth )):
+    #        for i in xrange((bgwindow/2)+self.twidth, len(self.data)-( (bgwindow/2)+self.twidth ), max(1,self.twidth)):  # leaves gaps in data
+                diff = self.tracksub(i, bgwindow=bgwindow)
+#                if i == 658:
+#                    for j in range(303):
+#                        print 'diff', diff[:, j, :]
+                if len(n.shape(diff)) == 1:    # no track
+                    continue
+    
+                weightarr = n.where(diff != 0j, truearr, falsearr)  # ignore zeros in mean across channels # bit of a hack
+    
+                try:
+                    diffmean = n.average(diff, axis=2, weights=weightarr)
+                except ZeroDivisionError:
+                    diffmean = n.mean(diff, axis=2)    # if all zeros, just make mean # bit of a hack
+    
+                for trip in xrange(len(self.triples)):
+                    ij, jk, ki = self.triples[trip]
+                    self.bispectra[i, trip] = bisp(diffmean, ij, jk, ki).mean(axis=0)  # Stokes I bispectrum. Note we are averaging after forming bispectrum, so not technically a Stokes I bispectrum.
+            #==============================================================
+ 
+            
+            pickle.dump((self.bispectra, self.triples), bs_pkl)
+            bs_pkl.close()            
+            print 'self.data.shape', self.data.shape
+            print 'triples shape', triples.shape
+            print 'self.triples shape', self.triples.shape            
+            print 'xrange', (bgwindow/2)+self.twidth, len(self.data)-( (bgwindow/2)+self.twidth )
+            
+        print 'bgwindow', bgwindow
+        print 'shape self.bispectra', self.bispectra.shape
+#        for i in range(2303):
+#            if self.bispectra[658,i] == 0j:
+#                print 'self.bispectra',  self.bispectra[658,i]
+        
 
     def detect_bispectra(self, sigma=5., tol=1.3, Q=0, show=0, save=0):
         """Function to search for a transient in a bispectrum lightcurve.
@@ -1124,6 +1290,7 @@ for i in range(0, len(n_a)-2):
 
         # measure SNR_bl==Q from sigma clipped times with normal mean and std of bispectra. put into time,dm order
         bamean = ba.real.mean(axis=1)
+#        print 'bamean', bamean[657],bamean[658],bamean[659], '118:', bamean[118]
         bastd = ba.real.std(axis=1)
 
         (meanmin,meanmax) = sigma_clip(bamean)  # remove rfi
@@ -1139,21 +1306,34 @@ for i in range(0, len(n_a)-2):
         #        Q = n.median( bastd[clipped]**(1/3.) )              # alternate for Q
             print 'Estimating noise per baseline from data. Q =', Q
         self.Q = Q
+        
+        print 'sigma= ', sigma
 
         # detect
         cands = n.where( (bastd/Q**3 < tol*sigbQ3(s(basnr, self.nants))) & (basnr > sigma) )[0]  # define compact sources with good snr
-        print cands
+        print 'SBs read:', self.chans + 1
+        print 'cands No: ', len(cands)
+        print 'cands int: ', cands
+        print 'SNR[118]', basnr[118]
+        
+#        print ''
+#        x = n.ma.masked_array([1, 2, 5], mask=[1, 1, 1])
+#        print 'x', x
+#        x_mean = n.ma.mean(x)
+#        print 'x_mean', x_mean.data, type(x_mean)
 
         # plot snrb lc and expected snr vs. sigb relation
         if show or save:
+            fake_tr_indexes = [118]#GDK
             p.figure()
             ax = p.axes()
             p.subplot(211)
             p.title(str(self.nskip/self.nbl)+' nskip, ' + str(len(cands))+' candidates', transform = ax.transAxes)
             p.plot(basnr, 'b.')
+            p.plot(fake_tr_indexes, basnr[fake_tr_indexes], 'g*')#GDK
             if len(cands) > 0:
                 p.plot(cands, basnr[cands], 'r*')
-                p.ylim(-2*basnr[cands].max(),2*basnr[cands].max())
+#                p.ylim(-2*basnr[cands].max(),2*basnr[cands].max()) #commented by GDK
             p.xlabel('Integration')
             p.ylabel('SNR$_{bisp}$')
             p.subplot(212)
@@ -1164,26 +1344,44 @@ for i in range(0, len(n_a)-2):
             sarr = smax*n.arange(0,51)/50.
             p.plot(sigbQ3(sarr), 1/2.*sarr**3*n.sqrt(ntr(self.nants)), 'k')
             p.plot(tol*sigbQ3(sarr), 1/2.*sarr**3*n.sqrt(ntr(self.nants)), 'k--')
+            p.plot(bastd[fake_tr_indexes]/Q**3, basnr[fake_tr_indexes], 'g*') #GDK
             p.plot(bastd[cands]/Q**3, basnr[cands], 'r*')
+            
+                        #GDK
+            #p.axis([0, 15,-15,15])            
+            #GDK
+            for fake_ind in fake_tr_indexes:
+                p.text(bastd[fake_ind]/Q**3, basnr[fake_ind], fake_ind, horizontalalignment = 'right', verticalalignment = 'bottom')
 
             if len(cands) > 0:
-                p.axis([0, tol*sigbQ3(s(basnr[cands].max(), self.nants)), -0.5*basnr[cands].max(), 1.1*basnr[cands].max()])
+#                p.axis([0, tol*sigbQ3(s(basnr[cands].max(), self.nants)), -0.5*basnr[cands].max(), 1.1*basnr[cands].max()]) #changes plotting range #commented by GDK
 
                 # show spectral modulation next to each point
                 for candint in cands:
-                    sm = n.single(round(self.specmod(candint),1))
-                    p.text(bastd[candint]/Q**3, basnr[candint], str(sm), horizontalalignment='right', verticalalignment='bottom')
+#                    sm = n.single(round(self.specmod(candint),1))#commented by GDK
+#                    p.text(bastd[candint]/Q**3, basnr[candint], str(sm), horizontalalignment='right', verticalalignment='bottom')  #commented by GDK
+                    p.text(bastd[candint]/Q**3, basnr[candint], candint, horizontalalignment = 'right', verticalalignment = 'bottom') #GDK
             p.xlabel('$\sigma_b/Q^3$')
             p.ylabel('SNR$_{bisp}$')
             if save:
                 if save == 1:
-                    savename = self.file.split('.')[:-1]
-                    savename.append(str(self.nskip/self.nbl) + '_bisp.png')
-                    savename = string.join(savename,'.')
+#                    #original
+#                    savename = self.file.split('.')[:-1]
+#                    savename.append(str(self.nskip/self.nbl) + '_bisp.png')
+#                    savename = string.join(savename,'.')
+                    #GDK
+                    png_pathout = '/home/georgi/tpipe/png_output_folder/'
+#                    savename = png_pathout + string.join(self.file.split('.')[:-1], '.') + '_bispectra_pw' + str(int(self.pulsewidth[0])) + \
+#                        '_bgwindow' + str(self.bgw) + '_chans'+ str(self.chans[0]+1) + '-' +str(self.chans[len(self.chans)-1]+1) + \
+#                        '_nints' + str(self.nints) + '_nskip' + str(self.nskip) + '.png'
+                        
+                    savename = png_pathout + self.filename_pattern + '.png'
+                        
                 elif type(save) == type('hi'):
                     savename = save
                 print 'Saving file as ', savename
-                p.savefig(self.pathout+savename)
+#                p.savefig(self.pathout+savename) #commented by GDK
+                p.savefig(savename) #GDK
 
         return basnr[cands], bastd[cands], cands
 
