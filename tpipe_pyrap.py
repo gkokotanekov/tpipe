@@ -18,7 +18,8 @@ import pylab as p
 # set up libraries for reading and imaging visibility data
 try:
     # for simplicity, we should use pyrap for reading MS
-    import pyrap
+    import pyrap.tables as pt
+#    from pyrap.tables import table
     print 'Imported pyrap'
 except ImportError:
     try:
@@ -958,43 +959,97 @@ class MSReader(Reader):
         self.file = file
         self.scan = scan
         self.nints = nints
-        
-
 
         # get spw info. either load pickled version (if found) or make new one
 #        pklname = string.join(file.split('.')[:-1], '.') + '_init.pkl'
 ##        pklname = pklname.split('/')[-1]  # hack to remove path and write locally
-        pklname=self.pathout + string.join(file.split('.')[:-1], '.') + '_init.pkl' #GDK   
-        
-        #GDK to test
-        pklname_t3=self.pathout + string.join(file.split('.')[:-1], '.') + '_t3.pkl' #GDK 
-        pkl_t3 = open(pklname_t3, 'r')
-        (da_datacol) = pickle.load(pkl_t3)
-        
-        print 'da_datacol', da_datacol.shape
+        pklname=self.pathout + string.join(file.split('.')[:-1], '.') + '_pyrap_init.pkl' #GDK   
              
         if os.path.exists(pklname):
             print 'Pickle of initializing info found. Loading...'
             pkl = open(pklname, 'r')
             try:
-                (self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, spwinfo, scansummary) = pickle.load(pkl)
+#                (self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, spwinfo, scansummary) = pickle.load(pkl)
+                (self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, self.numchan) = pickle.load(pkl) #GDK pyrap
             except EOFError:
                 print 'Bad pickle file. Exiting...'
                 return 1
-# old way, casa 3.3?
-#            scanlist = scansummary['summary'].keys()
-#            starttime_mjd = scansummary['summary'][scanlist[scan]]['0']['BeginTime']
-# new way, casa 4.0?
-            scanlist = scansummary.keys()
-            starttime_mjd = scansummary[scanlist[scan]]['0']['BeginTime']
+## old way, casa 3.3?
+##            scanlist = scansummary['summary'].keys()
+##            starttime_mjd = scansummary['summary'][scanlist[scan]]['0']['BeginTime']
+## new way, casa 4.0?
+#            scanlist = scansummary.keys()
+#            starttime_mjd = scansummary[scanlist[scan]]['0']['BeginTime']
             self.nskip = int(nskip*self.nbl)    # number of iterations to skip (for reading in different parts of buffer)
             self.npol = len(selectpol)
         else:
             print 'No pickle of initializing info found. Making anew...'
             pkl = open(pklname, 'wb')
-            ms.open(self.file)
-            spwinfo = ms.getspectralwindowinfo()
-            scansummary = ms.getscansummary()
+#            ms.open(self.file)
+#            spwinfo = ms.getspectralwindowinfo()
+#            scansummary = ms.getscansummary()
+
+
+            
+            #GDK pyrap
+#            spwinfo = {'0': {'ChanWidth': 183105.46875, 'Chan1Freq': 30078125.0, 'Frame': 'TOPO', 'RefFreq': 30371093.75, 'SpectralWindowId': 0, 'TotalWidth': 732421.875, 'NumChan': 4}}
+#            scansummary = {'0': {'0': {'nRow': 201495, 'StateId': 0, 'FieldId': 0, 'BeginTime': 55919.137505795086, 'EndTime': 55919.14520166329, 'SpwIds': array([0], dtype=int32), 'IntegrationTime': 1.0013900799999822}}}
+
+            t = pt.table(self.file)            
+            
+            #count baselines
+            t2 = t.sort('unique ANTENNA1, ANTENNA2')            
+            ant1_t2 = t2.getcol('ANTENNA1')
+            ant2_t2 = t2.getcol('ANTENNA2')
+            bsl_number = len(ant1_t2)
+            print 'bsl_number', bsl_number 
+            
+            
+            t = t.sort ('TIME, ANTENNA1, ANTENNA2')
+
+#            obs_t = pt.table(self.file + '::OBSERVATION')
+#            starttime0 = obs_t.getcol("TIME_RANGE")[0][0]# the beginning of the first integration
+#            starttime0 = t.getcol("TIME")[0] # the middle of the first integration, as in CASA
+            starttime0 = t.getcol("TIME")[0]+0.5 # +0.5 to select the same as CASA, because obviously queries work differently !?
+            stoptime0 = starttime0 + 2
+          
+
+#            t = t.query("TIME > " + str(starttime0) + " && TIME < " + str(stoptime0), sortlist="TIME,ANTENNA1,ANTENNA2")
+            t = t.query("TIME > " + str(starttime0) + " && TIME < " + str(stoptime0))
+
+   
+            datacol = datacol.upper() #pyrap needs the column name to be in capital letters
+            da_datacol = t.getcol(datacol)
+            print 'da_datacol ', da_datacol.shape  
+
+            
+            integr_time = t.getcol("EXPOSURE")
+
+
+
+            self.blarr=n.array([[ant1_t2[i], ant2_t2[i]] for i in range(len(ant1_t2))])
+#            print 'self.blarr', self.blarr
+#            print 'self.blarr.shape', self.blarr.shape
+
+#            time_steps = len(da_datacol[:, 0, 0])/bsl_number
+#            print 'time_steps', time_steps
+            dim2 = len(da_datacol[ 0, :, 0]) #should make this nicer!!!
+            dim3 = len(da_datacol[ 0, 0, :]) #should make this nicer!!!
+
+            da_datacol = n.reshape(da_datacol, (-1, bsl_number, dim2, dim3))
+            da_datacol = n.transpose(da_datacol, axes=[3,2,1,0])
+            print 'da_datacol shape', da_datacol.shape
+            
+            #write pkl file to compare with casa version
+            pklname_t3=self.pathout + string.join(file.split('.')[:-1], '.') + '_t3.pkl' #GDK 
+            print 'pkl t3 MUST have been written',  pklname_t3
+            pkl_t3 = open(pklname_t3, 'wb')
+            pickle.dump((da_datacol), pkl_t3)
+            pkl_t3.close()
+            
+            t.flush()
+            t2.flush()
+            
 
 
 # original (general version)
@@ -1004,96 +1059,76 @@ class MSReader(Reader):
 #            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0.5/(24.*60*60), 'd'), form=['ymd'], prec=9), 's'))
 
 # for casa 4.0 (?) and later
-            scanlist = scansummary.keys()
-            starttime_mjd = scansummary[scanlist[scan]]['0']['BeginTime']
-            starttime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
-            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0] #GDK, 0.5->3.0
-#            print 'starttime0',qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)
-#            print 'stoptime0',  qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)
+#            scanlist = scansummary.keys()
+#            starttime_mjd = scansummary[scanlist[scan]]['0']['BeginTime']
+#            starttime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
+#            stoptime0 = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0] #GDK, 0.5->3.0
+##            print 'starttime0',qa.time(qa.quantity(starttime_mjd+0/(24.*60*60),'d'),form=['ymd'], prec=9)
+##            print 'stoptime0',  qa.time(qa.quantity(starttime_mjd+3.0/(24.*60*60), 'd'), form=['ymd'], prec=9)
             
-  
-            ms.selectinit(datadescid=0)  # initialize to initialize params
-
-            selection = {'time': [starttime0, stoptime0]}
+#            starttime0 = 4831413480.5
+#            stoptime0 = 4831413483.5
+#
+#            ms.selectinit(datadescid=0)  # initialize to initialize params
+#
+#            selection = {'time': [starttime0, stoptime0]}
 #            ms.select(items = selection)
-
-
-            da = ms.getdata([datacol,'axis_info'], ifraxis=True)
-            
-            #GDK to test
-            da_compare = da[datacol]
-            
-#            #GDK to test
-##            da_compare = n.transpose(da[datacol], axes=[3,2,1,0])
-#            print 'da_compare', da_compare.shape
-##            print 'values', da_compare[0, 0, 0, 0], da_datacol[0, 0, 0, 0]
-##            print 'values', da_compare[0, 0, 0, 1], da_datacol[0, 0, 0, 1]
-##            print ccc
-#            for i in range(4):
-#                for j in range(4):
-#                    for jj in range(303):
-#                        for jjj in range(665):
-##                            if round(da_compare[i,j,jj,jjj].real, 4) != da_datacol[i,j,jj,jjj].real:# or \
-#                            if da_compare[i,j,jj,jjj].real != da_datacol[i,j,jj,jjj].real:                              
-##                               round(da_compare[i,j,jj,jjj].imag, 3) != da_datacol[i,j,jj,jjj].imag :
-#                            
-#                                print 'DIFFERENT',i,j,jj,jjj, round(da_compare[i,j,jj,jjj].real, 4), da_datacol[i,j,jj,jjj].real
-            print 'first:'
-            print 'data 658', da_compare[:, :, 302, 658]
-            print 'data_pkl 658', da_datacol[:, :, 302, 658]
-     
-     
-                                
-#            if da[datacol].real.any() != da_datacol.real.any(): 
-#                print 'DIFFFFFFFFFFF 1'
-#            if da[datacol].real.all() == da_datacol.real.all():
-#                print 'ALLLLL SAME 1'
-#            print aaa
-
-            ms.close()
+#
+#
+#            da = ms.getdata([datacol,'axis_info'], ifraxis=True)
+#
+#            ms.close()
+#            
+#            
+#            self.npol_orig = da[datacol].shape[0]
+#            self.nbl = da[datacol].shape[2]
             
             
-            self.npol_orig = da[datacol].shape[0]
-            self.nbl = da[datacol].shape[2]
+            self.npol_orig = da_datacol.shape[0]
+            self.nbl = da_datacol.shape[2]
+            self.numchan = da_datacol.shape[1] #GDK
+            
+            
             print 'Initializing nbl:', self.nbl
-
-            # good baselines
-            bls = da['axis_info']['ifr_axis']['ifr_shortname']
-#            print 'bsl', bls
-#            print aaa
-#            bls = 
             
-            #added by GDK because of LOFAR antenna names
-            try:                
-                self.blarr=n.array([[int(bls[i].split('-')[0]), int(bls[i].split('-')[1])] for i in range(len(bls))])       
-            except:
-                self.blarr=n.array([[bls[i].split('-')[0], bls[i].split('-')[1]] for i in range(len(bls)) if bls[i].split('-')[0] != bls[i].split('-')[1]])
-                self.ants_list=list(n.unique(self.blarr))
-                ant_inds_dict={}
-                for i in range(len(self.ants_list)):
-                    ant_inds_dict[i]=self.ants_list[i]
-                print 'ant_inds_dict', ant_inds_dict
-                self.blarr=n.array([[self.ants_list.index(bls[i].split('-')[0]), self.ants_list.index(bls[i].split('-')[1])] for i in range(len(bls))])
-    
-    
+            
+            
+
+#            # good baselines
+#            bls = da['axis_info']['ifr_axis']['ifr_shortname']
+            
+            
+#            #added by GDK because of LOFAR antenna names
+#            try:                
+#                self.blarr=n.array([[int(bls[i].split('-')[0]), int(bls[i].split('-')[1])] for i in range(len(bls))])       
+#            except:
+#                self.blarr=n.array([[bls[i].split('-')[0], bls[i].split('-')[1]] for i in range(len(bls)) if bls[i].split('-')[0] != bls[i].split('-')[1]])
+#                self.ants_list=list(n.unique(self.blarr))
+#                ant_inds_dict={}
+#                for i in range(len(self.ants_list)):
+#                    ant_inds_dict[i]=self.ants_list[i]
+#                print 'ant_inds_dict', ant_inds_dict
+#                self.blarr=n.array([[self.ants_list.index(bls[i].split('-')[0]), self.ants_list.index(bls[i].split('-')[1])] for i in range(len(bls))])
+            
+            
+            
 #            self.blarr = n.array([[int(bls[i].split('-')[0]),int(bls[i].split('-')[1])] for i in xrange(len(bls))]) #original
             self.nskip = int(nskip*self.nbl)    # number of iterations to skip (for reading in different parts of buffer)
 
             # set integration time
-            ti0 = da['axis_info']['time_axis']['MJDseconds']
-#            self.inttime = scansummary['summary'][scanlist[scan]]['0']['IntegrationTime']  # general way
-            self.inttime = scansummary[scanlist[scan]]['0']['IntegrationTime']   # subset way, or casa 4.0 way?
+#            ti0 = da['axis_info']['time_axis']['MJDseconds'] #commented by GDK, not used
+            
+            
+##            self.inttime = scansummary['summary'][scanlist[scan]]['0']['IntegrationTime']  # general way
+#            self.inttime = scansummary[scanlist[scan]]['0']['IntegrationTime']   # subset way, or casa 4.0 way?            
+            self.inttime = integr_time[0] #GDK, pyrap way
+            
             self.inttime0 = self.inttime
             print 'Initializing integration time (s):', self.inttime
 
-            pickle.dump((self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, spwinfo, scansummary), pkl)
+#            pickle.dump((self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, spwinfo, scansummary), pkl)
+            pickle.dump((self.npol_orig, self.nbl, self.blarr, self.inttime, self.inttime0, self.numchan), pkl) #GDK pyrap
         pkl.close()
-        
-        #GDK to test
-        pklname_t3=self.pathout + string.join(file.split('.')[:-1], '.') + '_t3_realdata.pkl' #GDK 
-        pkl_t3 = open(pklname_t3, 'r')
-        (da_datacol, u_pkl, v_pkl, flags_pkl) = pickle.load(pkl_t3)
-        
 
         self.ants = n.unique(self.blarr)
         self.nants = len(n.unique(self.blarr))
@@ -1102,15 +1137,25 @@ class MSReader(Reader):
         self.npol = len(selectpol)
         print 'Initializing %d of %d polarizations' % (self.npol, self.npol_orig)
 
-        # set desired spw
-        if (len(spw) == 1) & (spw[0] == -1):
-##            spwlist = spwinfo['spwInfo'].keys()    # old way
-            spwlist = spwinfo.keys()    # new way
-#            spwlist = range(len(spwinfo.keys())) #way GDK, as far as I get the idea
-        else:
-            spwlist = spw
-            
-        print 'spwlist', spwlist
+#        # set desired spw
+#        if (len(spw) == 1) & (spw[0] == -1):
+###            spwlist = spwinfo['spwInfo'].keys()    # old way
+#            spwlist = spwinfo.keys()    # new way
+##            spwlist = range(len(spwinfo.keys())) #way GDK, as far as I get the idea
+#        else:
+#            spwlist = spw
+
+        t = pt.table(self.file)
+        t = t.sort ('TIME, ANTENNA1, ANTENNA2')
+
+        data_desc_t = pt.table(self.file + '::DATA_DESCRIPTION')
+#        spw_id = data_desc_t.getcol('SPECTRAL_WINDOW_ID')
+#        print 'spw_id', spw_id
+        spw_info_t = pt.table(self.file + '::SPECTRAL_WINDOW')        
+        pol_t = pt.table(self.file + '::POLARIZATION')        
+#        core_type = pol_t.getcol('CORR_TYPE')
+#        print 'core_type', core_type
+        spwlist = data_desc_t.getcol('SPECTRAL_WINDOW_ID')
             
         try:
             spwlist = map(int, spwlist)
@@ -1120,83 +1165,133 @@ class MSReader(Reader):
         self.freq_orig = n.array([])
         for spw in spwlist:
 # new way
-            nch = spwinfo[str(spw)]['NumChan']
-            ch0 = spwinfo[str(spw)]['Chan1Freq']
-            chw = spwinfo[str(spw)]['ChanWidth']
-            self.freq_orig = n.concatenate( (self.freq_orig, (ch0 + chw * n.arange(nch)) * 1e-9) )
+#            nch = spwinfo[str(spw)]['NumChan']
+#            ch0 = spwinfo[str(spw)]['Chan1Freq']
+#            chw = spwinfo[str(spw)]['ChanWidth']
+
 # old way
 #            nch = spwinfo['spwInfo'][str(spw)]['NumChan']
 #            ch0 = spwinfo['spwInfo'][str(spw)]['Chan1Freq']
 #            chw = spwinfo['spwInfo'][str(spw)]['ChanWidth']
+            
+#GDK pyrap
+            nch = spw_info_t.getcol('NUM_CHAN')[0]
+            ch0 = spw_info_t.getcol('CHAN_FREQ')[0][0]
+            chw = spw_info_t.getcol('CHAN_WIDTH')[0][0]
+            
+            
+            self.freq_orig = n.concatenate( (self.freq_orig, (ch0 + chw * n.arange(nch)) * 1e-9) )
+
 
         self.freq = self.freq_orig[self.chans]
         self.nchan = len(self.freq)
-        print 'ch0', ch0
         print 'Initializing nchan:', self.nchan
 
         # set requested time range based on given parameters
         timeskip = self.inttime*nskip
 # new way        
-        starttime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
-        stoptime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0]
-        print 'First integration of scan:', qa.time(qa.quantity(starttime_mjd,'d'),form=['ymd'],prec=9)[0]
+#        starttime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['ymd'], prec=9)[0], 's'))[0]
+#        stoptime = qa.getvalue(qa.convert(qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['ymd'], prec=9)[0], 's'))[0]
+        
+        
+#        obs_t = pt.table(self.file + '::OBSERVATION')
+#        starttime = obs_t.getcol("TIME_RANGE")[0][0]# the beginning of the first integration
+        starttime = t.getcol("TIME")[0] # the middle of the first integration, as in CASA
+#        starttime +=  timeskip
+        starttime +=  timeskip + 0.5 # 0.5 to read the same as CASA, but thus it skips first step => not good !?
+#            starttime0 = t.getcol("TIME")[0]+0.5 # +0.5 to select the same as CASA, because obviously queries work differently !?
+#        stoptime =  t.getcol("TIME")[:-1] # the middle of the last integration, as in CASA
+        stoptime =  starttime + nints*self.inttime
         print 'starttime', starttime
         print 'stoptime', stoptime
+        
+        
+        
+        
+#        print 'First integration of scan:', qa.time(qa.quantity(starttime_mjd,'d'),form=['ymd'],prec=9)[0]
 #        print
 # new way
-        print 'Reading scan', str(scanlist[scan]) ,'for times', qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['hms'], prec=9)[0], 'to', qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['hms'], prec=9)[0]
+#        print 'Reading scan', str(scanlist[scan]) ,'for times', qa.time(qa.quantity(starttime_mjd+timeskip/(24.*60*60),'d'),form=['hms'], prec=9)[0], 'to', qa.time(qa.quantity(starttime_mjd+(timeskip+nints*self.inttime)/(24.*60*60), 'd'), form=['hms'], prec=9)[0]
 
         # read data into data structure
-        ms.open(self.file)
-        ms.selectinit(datadescid=spwlist[0])  
-        selection = {'time': [starttime, stoptime]}
-        ms.select(items = selection)
-        print 'Reading %s column, SB %d, polarization %s...' % (datacol, spwlist[0], selectpol)
-        print 'selectpol', selectpol 
-        ms.selectpolarization(selectpol)
-        da = ms.getdata([datacol,'axis_info','u','v','w','flag'], ifraxis=True)
-        u = da['u']; v = da['v']; w = da['w']
-        if da == {}:
-            print 'No data found.'
-            return 1
-        newda = n.transpose(da[datacol], axes=[3,2,1,0])  # if using multi-pol data.
-        flags = n.transpose(da['flag'], axes=[3,2,1,0])
+        #GDK pyrap
         
-        if len(spwlist) > 1:
-            for spw in spwlist[1:]:
-                ms.selectinit(datadescid=spw)  # reset select params for later data selection
-                ms.select(items = selection)
-                print 'Reading %s column, SB %d, polarization %s...' % (datacol, spw, selectpol)
-                ms.selectpolarization(selectpol)
-                da = ms.getdata([datacol,'axis_info','flag'], ifraxis=True)
-                newda = n.concatenate( (newda, n.transpose(da[datacol], axes=[3,2,1,0])), axis=2 )
-                flags = n.concatenate( (flags, n.transpose(da['flag'], axes=[3,2,1,0])), axis=2 )
-        ms.close()
+#        t = t.query("TIME > " + str(starttime) + " && TIME < " + str(stoptime), sortlist="TIME,ANTENNA1,ANTENNA2")
+        t = t.query("TIME > " + str(starttime) + " && TIME < " + str(stoptime))
         
-        print 'da[datacol].shape', da[datacol].shape
-        print 'newda.shape', newda.shape
-        print 'da[u]', da['u'].shape
-        print 'newda.shape', newda.shape
-        print 'flags.shape', flags.shape
+#        t = t.query("TIME > " + str(starttime) + " && TIME < " + str(stoptime) + " && %s/POLARIZATION/CORR_TYPE = 9", sortlist="TIME,ANTENNA1,ANTENNA2")
+        datacol = datacol.upper() #pyrap needs the column name to be in capital letters
+        da_datacol = t.getcol(datacol)
+
+        print 'selectpol', str(selectpol)
+        print 'da_datacol 0 ', da_datacol.shape
+        if selectpol == ['XX', 'YY']:
+            col_pol1 = 0
+            col_pol2 = 3
+            da_datacol = da_datacol[:, :, col_pol1::col_pol2]
+        else:
+            print 'Polarizations XX and YY should be used!!!!'       
         
-        if da[datacol].real.any() != da_datacol.real.any(): 
-            print 'DIFFFFFFFFFFF 2'
-        if da[datacol].real.all() == da_datacol.real.all():
-            print 'ALLLLL SAME 2'
-        if u.all() == u_pkl.all():
-            print 'ALL SAME U'
-        if v.all() == v_pkl.all():
-            print 'ALL SAME V'        
-        if flags.all() == flags_pkl.all():
-            print 'ALL SAME flags'  
-            
-#        print 'data 658', da[datacol][:, :, 302, 658]
-        da_compare = n.transpose(da[datacol], axes=[3,2,1,0])
-        for i in range(4):
-            print 'da_local', da_compare [658, 302, i, :]
-            print 'data_pkl 658', da_datacol[658, 302, i, :]
-            print ''
-#        print aaa
+        
+        dim2 = len(da_datacol[ 0, :, 0]) #should make this nicer!!!
+        dim3 = len(da_datacol[ 0, 0, :]) #should make this nicer!!!
+
+        da_datacol = n.reshape(da_datacol, (-1, self.nbl, dim2, dim3))
+        print 'da_datacol ', da_datacol.shape
+        newda = da_datacol
+        flags = t.getcol('FLAG')
+        flags = flags[:, :, col_pol1::col_pol2]        
+        flags = n.reshape(flags, (-1, self.nbl, dim2, dim3))
+        
+#        print 'newda.shape', newda.shape
+#        print 'flags.shape', flags.shape
+        
+        uvw = t.getcol('UVW')
+        dim2_uvw = len(uvw[ 0, :]) #should make this nicer!!!
+        uvw = n.reshape(uvw, (-1, self.nbl, dim2_uvw))
+        u = uvw[:, :, 0]; v = uvw[:, :, 1]; w = uvw[:, :, 2]   
+#        print 'uvw', uvw.shape        
+#        print 'dim2_uvw', dim2_uvw
+#        print 'uvw', uvw.shape
+        
+#        print 'resolution', spw_info_t.getcol('RESOLUTION')[0][0]
+        print 'chan freq', spw_info_t.getcol('CHAN_FREQ')[0][0]
+        
+        #write pkl file to compare with casa version
+        pklname_t3=self.pathout + string.join(file.split('.')[:-1], '.') + '_t3_realdata.pkl' #GDK 
+        pkl_t3 = open(pklname_t3, 'wb')
+        pickle.dump((da_datacol, u, v, flags), pkl_t3)
+        pkl_t3.close()
+        
+
+
+#        # read data into data structure
+#        ms.open(self.file)
+#        ms.selectinit(datadescid=spwlist[0])  # reset select params for later data selection #commented by GDK
+#        selection = {'time': [starttime, stoptime]}
+#        ms.select(items = selection)
+#        print 'Reading %s column, SB %d, polarization %s...' % (datacol, spwlist[0], selectpol)
+#        ms.selectpolarization(selectpol)
+#        da = ms.getdata([datacol,'axis_info','u','v','w','flag'], ifraxis=True)
+#        u = da['u']; v = da['v']; w = da['w']
+#        if da == {}:
+#            print 'No data found.'
+#            return 1
+#        newda = n.transpose(da[datacol], axes=[3,2,1,0])  # if using multi-pol data.
+#        flags = n.transpose(da['flag'], axes=[3,2,1,0])
+#        
+#        if len(spwlist) > 1:
+#            for spw in spwlist[1:]:
+#                ms.selectinit(datadescid=spw)  # reset select params for later data selection
+#                ms.select(items = selection)
+#                print 'Reading %s column, SB %d, polarization %s...' % (datacol, spw, selectpol)
+#                ms.selectpolarization(selectpol)
+#                da = ms.getdata([datacol,'axis_info','flag'], ifraxis=True)
+#                newda = n.concatenate( (newda, n.transpose(da[datacol], axes=[3,2,1,0])), axis=2 )
+#                flags = n.concatenate( (flags, n.transpose(da['flag'], axes=[3,2,1,0])), axis=2 )
+#        ms.close()
+        
+        
 
         # Initialize more stuff...
         self.nschan0 = self.nchan
@@ -1204,29 +1299,35 @@ class MSReader(Reader):
         # set variables for later writing data **some hacks here**
         self.nspect0 = 1
         self.nwide0 = 0
-        self.sdf0 = da['axis_info']['freq_axis']['resolution'][0][0] * 1e-9
+#        self.sdf0 = da['axis_info']['freq_axis']['resolution'][0][0] * 1e-9
+        self.sdf0 =  spw_info_t.getcol('RESOLUTION')[0][0] * 1e-9 #GDK pyrap
         self.sdf = self.sdf0
         self.ischan0 = 1
-        self.sfreq0 = da['axis_info']['freq_axis']['chan_freq'][0][0] * 1e-9
+#        self.sfreq0 = da['axis_info']['freq_axis']['chan_freq'][0][0] * 1e-9
+        self.sfreq0 = spw_info_t.getcol('CHAN_FREQ')[0][0] * 1e-9 #GDK pyrap
         self.sfreq = self.sfreq0
         self.restfreq0 = 0.0
         self.pol0 = -1 # assumes single pol?
-        
-        print 'resolution', da['axis_info']['freq_axis']['resolution'][0][0]
-        print 'chan_freq', da['axis_info']['freq_axis']['chan_freq'][0][0]
 
         # Assumes MS files store uvw in meters. Corrects by mean frequency of channels in use.
         self.u = u.transpose() * self.freq_orig[0] * (1e9/3e8)
         self.v = v.transpose() * self.freq_orig[0] * (1e9/3e8)
         self.w = w.transpose() * self.freq_orig[0] * (1e9/3e8)
+        
+        
 
         # set integration time and time axis
-        ti = da['axis_info']['time_axis']['MJDseconds']
-        self.reltime = ti - ti[0]
-        print 'ti', ti.shape
+#        ti = da['axis_info']['time_axis']['MJDseconds']
+        
+        ti = t.getcol("TIME")
+        ti = n.reshape(ti, (-1, self.nbl))
+        ti = ti[:, 0]
+#        print 'ti.shape', ti.shape
 #        for i in range(len(ti)):
 #            print ti[i]
         print 'ti', ti[0], ti[-1]
+        
+        self.reltime = ti - ti[0]
 
         # define relative phase center for each integration
         self.l0 = n.zeros(self.nints)
@@ -1343,16 +1444,10 @@ class ProcessByIntegration():
         self.data = n.ma.masked_array(self.rawdata[:self.nints,:, self.chans,:], self.flags[:self.nints,:, self.chans,:] == 0)   # mask of True for flagged data (flags=0 in tpipe, which is flags=False in Miriad and flags=True in MS)
 
         
-#        #GDK to test
-#        pklname_t3=self.pathout + 't3_prep.pkl' #GDK 
-#        pkl_t3 = open(pklname_t3, 'r')
-#        (data_pkl) = pickle.load(pkl_t3)
-#        if data_pkl.all() == self.data.all():
-#            print 'ALL SAME DATA in PREP'
-#            
-#        print 'data 658', self.data[658, 302, :,:].data
-#        print 'data_pkl 658', data_pkl[658, 302, :,:].data
-        
+        pklname_t3=self.pathout + 't3_prep.pkl' #GDK 
+        pkl_t3 = open(pklname_t3, 'wb')
+        pickle.dump((self.data), pkl_t3)
+        pkl_t3.close()
 
 
         self.dataph = (self.data.mean(axis=3).mean(axis=1)).real   #dataph is summed and detected to form TP beam at phase center, multi-pol
@@ -1411,6 +1506,7 @@ class ProcessByIntegration():
         """
         
         data = self.data
+        
         track_t,track_c = self.track0  # get track time and channel arrays
         trackon = (list(n.array(track_t)+tbin), track_c)   # create new track during integration of interest
         twidth = self.twidth
@@ -1522,6 +1618,9 @@ class ProcessByIntegration():
             else:
                 datadiffarr[ch] = meanon
                 
+                
+            
+                
 
 ##            #GDK PRINTING                
 #            t_index = 658
@@ -1570,7 +1669,7 @@ class ProcessByIntegration():
 #                    print 'datadiffarr', datadiffarr[ch][jj, :]
 #                    print 'datadiffarr', datadiffarr[ch][jj, :].data, 'data'
 #                    print ''
-#  
+  
         return n.transpose(datadiffarr, axes=[2,1,0])
 
     def make_bispectra(self, bgwindow=4):
@@ -1600,11 +1699,11 @@ for i in range(0, len(n_a)-2):
       In practice, this search involves plotting the mean bispectrum versus time and searching for large deviations. At the same time, a plot of mean versus standard deviation of bispectra will show whether any significant deviation obeys the expected self-noise scaling. That scaling is only valid for a single point source in the field of view, which is what you expect for a fast transient. Any other behavior would be either noise-like or caused by RFI. In particular, RFI will look like a transient, but since it does not often look like a point source, it can be rejected in the plot of mean vs. standard deviation of bispectra. This is a point that I've demonstrated on a small scale, but would needs more testing, since RFI is so varied.
         """
 
-        
+     
         use_pkl_bsp = True #to use (True) or not a pkl bispectrum file (if available)
         
 #        self.bgw = bgwindow #GDK, needed for the png save name in detect_bispectra 
-        self.filename_pattern = string.join(self.file.split('.')[:-1], '.') + '_bispectra_pw' + str(int(self.pulsewidth[0])) + \
+        self.filename_pattern = string.join(self.file.split('.')[:-1], '.') + '_pyrap_bispectra_pw' + str(int(self.pulsewidth[0])) + \
                         '_bgwindow' + str(bgwindow) + '_chans'+ str(self.chans[0]+1) + '-' +str(self.chans[len(self.chans)-1]+1) + \
                         '_nints' + str(self.nints) + '_nskip' + str(self.nskip) # needed for the png save name in detect_bispectra
         
@@ -1739,6 +1838,7 @@ for i in range(0, len(n_a)-2):
 
         # plot snrb lc and expected snr vs. sigb relation
         if show or save:
+            print 'Plotting...'
             fake_tr_indexes = [118]#GDK
             p.figure()
             ax = p.axes()
@@ -1778,6 +1878,7 @@ for i in range(0, len(n_a)-2):
                     p.text(bastd[candint]/Q**3, basnr[candint], candint, horizontalalignment = 'right', verticalalignment = 'bottom') #GDK
             p.xlabel('$\sigma_b/Q^3$')
             p.ylabel('SNR$_{bisp}$')
+            
             if save:
                 if save == 1:
 
@@ -2751,7 +2852,7 @@ class pipe_msint(MSReader, ProcessByIntegration):
     """
 
 #    def __init__(self, file, profile='default', nints=1024, nskip=0, spw=[-1], selectpol=['RR','LL'], scan=0, datacol='data', **kargs):
-    def __init__(self, file, profile='default', nints=1024, nskip=0, spw=[-1], selectpol=['XX', 'YY'], scan=0, datacol='data', **kargs): #GDK    
+    def __init__(self, file, profile='default', nints=1024, nskip=0, spw=[-1], selectpol=['XX','YY'], scan=0, datacol='data', **kargs):  #GDK   
         self.set_profile(profile=profile)
         self.set_params(**kargs)
         self.read(file=file, nints=nints, nskip=nskip, spw=spw, selectpol=selectpol, scan=scan, datacol=datacol)
